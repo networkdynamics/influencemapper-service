@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:latest
+    ports:
+      - "6380:6379"
+    restart: always
+  integration_test:
+    image: influencemapper-service-core-test:latest
+    build:
+      dockerfile: tests/Dockerfile
+      context: .
+    volumes:
+      - ./core/app:/myapp/core/app
+      - ./web/app:/myapp/web/app
+      - ./tests:/myapp/tests
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - redis
+  web_test:
+    image: influencemapper-service-web-test:latest
+    build:
+      dockerfile: web/tests/Dockerfile
+      context: .
+    volumes:
+      - ./web/tests:/myapp/web/tests
+      - ./web/app:/myapp/web/app
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - redis

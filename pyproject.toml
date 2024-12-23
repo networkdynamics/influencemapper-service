@@ -1,0 +1,66 @@
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "influencemapper-service"
+version = "0.9.0"
+description = "A web-based UI for Influencemapper package."
+authors = ["Hardy <hardy.oei@gmail.com>"]
+readme = "README.md"
+license = "MIT"
+keywords = ["disclosure", "conflict of interests", "competing interest", "research"]
+homepage = "https://github.com/networkdynamics/influencemapper"
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Natural Language :: English",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+redis = "^5.2.1"
+pandas = "^2.2.3"
+
+[tool.poetry.group.web]
+optional = true
+
+[tool.poetry.group.web.dependencies]
+fastapi = "^0.115.6"
+aioredis = "^2.0.1"
+Jinja2 = "^3.1.4"
+python-multipart = "^0.0.19"
+uvicorn = {version = "^0.34.0", extras = ["standard"]}
+
+[tool.poetry.group.core]
+optional = true
+
+[tool.poetry.group.core.dependencies]
+influencemapper = "^0.9.4"
+requests = "^2.32.3"
+
+[tool.poetry.group.test.dependencies]
+pytest = "^8.3.4"
+pytest-asyncio = "^0.25.0"
+coverage = "^7.6.9"
+pytest-cov = "^6.0.0"
+pytest-mock= "^3.14.0"
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
+asyncio_mode = "auto"
+addopts = "--cov=/myapp/web/app --cov=/myapp/core/app --cov-report=term-missing --no-cov-on-fail"
+pythonpath = [
+  "web/app",
+  "core/app"
+]

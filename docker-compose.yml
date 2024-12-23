@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  web:
+    image: influencemapper-service-web:latest
+    build:
+      dockerfile: web/Dockerfile
+      context: .
+    ports:
+        - "80:8000"
+    volumes:
+        - ./web/app:/app
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
+  redis:
+    image: redis:latest
+    ports:
+        - "6379:6379"
+    restart: always
+
+
+  core:
+    image: influencemapper-service-core:latest
+    build:
+      context: .
+      dockerfile: core/Dockerfile
+    volumes:
+        - ./core/app:/app
+    restart: always
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
