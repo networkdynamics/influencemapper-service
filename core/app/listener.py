@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import logging
@@ -34,9 +35,9 @@ async def process_message(redis_client, data, client, channel_name):
     elif channel_name == 'author_channel':
         result = infer_author(data, client)
         result_channel = 'author_result'
-    finish_reason = result['response']['body']['choices'][0]['finish_reason']
+    finish_reason = result.choices[0].finish_reason
     if finish_reason == 'stop':
-        parse_result = json.loads(result['response']['body']['choices'][0]['message']['content'])
+        parse_result = json.loads(result.choices[0].message.content)
     else:
         parse_result = {'result': result}
     await redis_client.publish(result_channel, json.dumps(parse_result))
@@ -48,7 +49,7 @@ async def handle_messages(redis_client, channel_name, client):
     pubsub = redis_client.pubsub()
     await pubsub.subscribe(channel_name)
     print(f"Listening to messages from channel: {channel_name}")
-    for message in pubsub.listen():
+    async for message in pubsub.listen():
         if message["type"] == "message":
             data = json.loads(message["data"])
             await process_message(redis_client, data, client, channel_name)
@@ -58,20 +59,20 @@ async def get_redis_client():
     redis_port = os.getenv('REDIS_PORT', 6379)
     return await aioredis.from_url(f"redis://{redis_host}:{redis_port}")
 
-def main():
+async def main():
     log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
     logging.basicConfig(level=log_level)
     secret_path = Path(__file__).parent.parent / 'secret_key'
     with secret_path.open() as f:
         secret_key = f.read().strip()
         client = OpenAI(api_key=secret_key)
-    redis_client = get_redis_client()
+    redis_client = await get_redis_client()
     channel_names = ['author_channel', 'study_channel']
-    threads = []
+    tasks = []
     for channel in channel_names:
-        thread = threading.Thread(target=handle_messages, args=(redis_client, channel, client))
-        threads.append(thread)
-        thread.start()
+        task = asyncio.create_task(handle_messages(redis_client, channel, client))
+        tasks.append(task)
+    await asyncio.gather(*tasks)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

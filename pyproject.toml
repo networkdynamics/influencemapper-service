@@ -31,13 +31,13 @@ classifiers = [
 python = "^3.9"
 redis = "^5.2.1"
 pandas = "^2.2.3"
+aioredis = "^2.0.1"
 
 [tool.poetry.group.web]
 optional = true
 
 [tool.poetry.group.web.dependencies]
 fastapi = "^0.115.6"
-aioredis = "^2.0.1"
 Jinja2 = "^3.1.4"
 python-multipart = "^0.0.19"
 uvicorn = {version = "^0.34.0", extras = ["standard"]}
