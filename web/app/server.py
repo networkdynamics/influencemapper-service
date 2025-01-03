@@ -12,51 +12,56 @@ from pandas import DataFrame
 from pydantic import BaseModel
 import pandas as pd
 import io
+import zipfile
+
+from starlette.responses import FileResponse
 
 log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
 logging.basicConfig(level=log_level)
 
 redis_client = None
-pubsub_author = None
-pubsub_study = None
+pubsub = None
+
 
 async def get_redis_client():
     redis_host = os.getenv('REDIS_HOST', 'localhost')
     redis_port = os.getenv('REDIS_PORT', 6379)
     return await aioredis.from_url(f"redis://{redis_host}:{redis_port}")
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global redis_client, pubsub_author, pubsub_study
+    global redis_client, pubsub
     redis_client = await get_redis_client()
-    pubsub_author = redis_client.pubsub()
-    pubsub_study = redis_client.pubsub()
-    await pubsub_author.subscribe('author_result')
-    await pubsub_study.subscribe('study_result')
-    await asyncio.sleep(1)
-    await pubsub_author.get_message()
-    await pubsub_study.get_message()
+    pubsub = redis_client.pubsub()
+    await pubsub.subscribe('result', ignore_subscribe_messages=True)
     yield
     await redis_client.close()
     await redis_client.connection_pool.disconnect()
+
 
 app = FastAPI(lifespan=lifespan)
 
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 
+
 class AuthorInfoRequest(BaseModel):
     authors: list[str]
     disclosure: str
 
+
 class StudyInfoRequest(BaseModel):
     disclosure: str
+
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
+
 async def publish_infos(df: DataFrame, channel: str):
-     for key, group in df.groupby("Article title"):
+    tasks = []
+    for key, group in df.groupby("Article title"):
         if channel == 'author_channel':
             data = AuthorInfoRequest(
                 authors=group["Author Name"].tolist(),
@@ -67,7 +72,9 @@ async def publish_infos(df: DataFrame, channel: str):
                 disclosure=group["Disclosure Statement"].iloc[0]
             )
         data_dump = json.dumps(data.model_dump())
-        await redis_client.publish(channel, data_dump)
+        tasks.append(redis_client.publish(channel, data_dump))
+    return tasks
+
 
 async def publish_author_infos(df: DataFrame):
     await publish_infos(
@@ -75,39 +82,39 @@ async def publish_author_infos(df: DataFrame):
         'author_channel'
     )
 
+
 async def publish_study_infos(df: DataFrame):
     await publish_infos(
         df,
         'study_channel'
     )
 
-async def process_infos(df: DataFrame, channel: str, pubsub: aioredis.client.PubSub):
-    print(f"Processing data for {channel}")
-    await publish_infos(df, channel)
-    print(f"Data published to {channel}")
-    while True:
-        # await for the next message
-        message = await pubsub.get_message(ignore_subscribe_messages=True)
-        if message:
-            result = json.loads(message['data'].decode('utf-8'))
-            return result
-
-
 @app.post('/upload')
-async def upload_csv(file: UploadFile = File(...)):
+async def upload_csv(request: Request, file: UploadFile = File(...)):
     if not file.filename.endswith(".csv"):
         return {"error": "File is not a CSV"}
-    try:
-        # Read the uploaded CSV
+    else:
         content = await file.read()
         df = pd.read_csv(io.StringIO(content.decode("utf-8")))
-        author_result = asyncio.create_task(process_infos(df, 'author_channel', pubsub_author))
-        study_result = asyncio.create_task(process_infos(df, 'study_channel', pubsub_study))
-        result1, result2 = await asyncio.gather(author_result, study_result)
-        # await asyncio.wait([author_result, study_result])
-        print("Waiting for results...")
-        print(result1)
-        print(result2)
-        return "Data uploaded successfully"
-    except Exception as e:
-        return {"error": f"An error occurred: {e}"}
+        author_tasks = await publish_infos(df, 'author_channel')
+        study_tasks = await publish_infos(df, 'study_channel')
+        total_message = len(author_tasks) + len(study_tasks)
+        await asyncio.gather(*(author_tasks+study_tasks))
+        message_count = 0
+        results = []
+        while message_count < total_message:
+            message = await pubsub.get_message()
+            if message:
+                try:
+                    result = json.loads(message['data'])
+                    results.append(result)
+                    logging.info(f"Received message: {result}")
+                    message_count += 1
+                except TypeError as e:
+                    logging.error(f"Could not decode message: {message}.\n Error: {e}")
+                    continue
+                logging.info(f'Received {message_count} of {total_message } messages')
+        open('results.json', 'w').write(json.dumps(results))
+        with zipfile.ZipFile('results.zip', 'w') as zipf:
+            zipf.write('results.json')
+        return FileResponse('results.zip')
