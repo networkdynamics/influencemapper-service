@@ -1,10 +1,12 @@
+import asyncio
 import json
 import os
 import logging
 import threading
+import time
 from pathlib import Path
 
-import aioredis
+import redis.asyncio as redis
 from openai import OpenAI
 
 
@@ -41,22 +43,30 @@ async def process_message(redis_client, data, client, channel_name):
         parse_result = {'result': result}
     await redis_client.publish(result_channel, json.dumps(parse_result))
 
-async def handle_messages(redis_client, channel_name, client):
+async def handle_messages(channel_name, client, redis_client):
     """
     Function to listen to messages for a specific channel.
     """
     pubsub = redis_client.pubsub()
     await pubsub.subscribe(channel_name)
     print(f"Listening to messages from channel: {channel_name}")
-    for message in pubsub.listen():
+    logging.info("Starting to listen for messages...")
+    async for message in pubsub.listen():
         if message["type"] == "message":
             data = json.loads(message["data"])
             await process_message(redis_client, data, client, channel_name)
 
-async def get_redis_client():
+
+def run_listener(secret_key, channel_name, pool):
+    openAI_client = OpenAI(api_key=secret_key)
+    redis_client = redis.Redis(connection_pool=pool)
+    asyncio.run(handle_messages(channel_name, openAI_client, redis_client), debug=True)
+
+
+def get_redis_pool():
     redis_host = os.getenv('REDIS_HOST', 'localhost')
     redis_port = os.getenv('REDIS_PORT', 6379)
-    return await aioredis.from_url(f"redis://{redis_host}:{redis_port}")
+    return redis.ConnectionPool.from_url(f"redis://{redis_host}:{redis_port}")
 
 def main():
     log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
@@ -64,14 +74,15 @@ def main():
     secret_path = Path(__file__).parent.parent / 'secret_key'
     with secret_path.open() as f:
         secret_key = f.read().strip()
-        client = OpenAI(api_key=secret_key)
-    redis_client = get_redis_client()
     channel_names = ['author_channel', 'study_channel']
+    pool = get_redis_pool()
     threads = []
     for channel in channel_names:
-        thread = threading.Thread(target=handle_messages, args=(redis_client, channel, client))
+        thread = threading.Thread(target=run_listener, args=(secret_key, channel, pool))
         threads.append(thread)
         thread.start()
+    for thread in threads:
+        thread.join()
 
 if __name__ == "__main__":
     main()

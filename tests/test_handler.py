@@ -3,10 +3,8 @@ import json
 import os
 from pathlib import Path
 
-import aioredis
+import redis.asyncio as redis
 import pytest
-import redis
-from openai import OpenAI
 
 import server
 import listener
@@ -58,7 +56,7 @@ def test_df():
 async def redisdb():
     redis_host = os.getenv('REDIS_HOST', 'localhost')
     redis_port = os.getenv('REDIS_PORT', 6379)
-    return await aioredis.from_url(f"redis://{redis_host}:{redis_port}")
+    return await redis.from_url(f"redis://{redis_host}:{redis_port}")
 
 
 @pytest.mark.asyncio
@@ -76,8 +74,8 @@ async def test_infer_study(redisdb, monkeypatch, my_client, test_df):
     monkeypatch.setattr(listener, 'infer_study', mock_infer)
     await listener.process_message(redisdb, data, my_client, 'study_channel')
     await asyncio.sleep(1)
-    message = await pubsub.get_message()
-    assert message['data'].decode('utf-8') == json.dumps('mocked response')
+    message2 = await pubsub.get_message()
+    assert message2['data'].decode('utf-8') == json.dumps('mocked response')
 
 @pytest.mark.asyncio
 async def test_infer_author(redisdb, monkeypatch, my_client, test_df):
@@ -94,5 +92,5 @@ async def test_infer_author(redisdb, monkeypatch, my_client, test_df):
     monkeypatch.setattr(listener, 'infer_author', mock_infer)
     await listener.process_message(redisdb, data, my_client, 'author_channel')
     await asyncio.sleep(1)
-    message = await pubsub.get_message()
-    assert message['data'].decode('utf-8') == json.dumps('mocked response')
+    message2 = await pubsub.get_message()
+    assert message2['data'].decode('utf-8') == json.dumps('mocked response')
