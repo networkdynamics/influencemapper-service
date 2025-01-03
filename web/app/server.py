@@ -3,8 +3,7 @@ import json
 import os
 import logging
 from contextlib import asynccontextmanager
-
-import aioredis
+import redis.asyncio as aioredis
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -82,7 +81,6 @@ async def publish_study_infos(df: DataFrame):
         'study_channel'
     )
 
-
 async def process_infos(df: DataFrame, channel: str, pubsub: aioredis.client.PubSub):
     print(f"Processing data for {channel}")
     await publish_infos(df, channel)
@@ -91,14 +89,8 @@ async def process_infos(df: DataFrame, channel: str, pubsub: aioredis.client.Pub
         # await for the next message
         message = await pubsub.get_message(ignore_subscribe_messages=True)
         if message:
-            print(f"Received message: {message['data']}")
             result = json.loads(message['data'].decode('utf-8'))
-            finish_reason = result['response']['body']['choices'][0]['finish_reason']
-            if finish_reason == 'stop':
-                parse_result = json.loads(result['response']['body']['choices'][0]['message']['content'])
-            else:
-                parse_result = {'result': result}
-            return parse_result
+            return result
 
 
 @app.post('/upload')
@@ -111,12 +103,11 @@ async def upload_csv(file: UploadFile = File(...)):
         df = pd.read_csv(io.StringIO(content.decode("utf-8")))
         author_result = asyncio.create_task(process_infos(df, 'author_channel', pubsub_author))
         study_result = asyncio.create_task(process_infos(df, 'study_channel', pubsub_study))
-        await author_result
-        await study_result
+        result1, result2 = await asyncio.gather(author_result, study_result)
         # await asyncio.wait([author_result, study_result])
         print("Waiting for results...")
-        print(author_result)
-        print(study_result)
+        print(result1)
+        print(result2)
         return "Data uploaded successfully"
     except Exception as e:
         return {"error": f"An error occurred: {e}"}

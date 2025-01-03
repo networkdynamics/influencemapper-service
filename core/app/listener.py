@@ -19,14 +19,12 @@ from influencemapper.study_org.infer import build_prompt as study_org_build_prom
 def infer_study(data: dict, client):
     data = StudyInfoRequest(disclosure=data['disclosure'])
     prompt = study_org_build_prompt(data)
-    result = study_org_infer(client, prompt)
-    return {'result': result}
+    return  study_org_infer(client, prompt)
 
 def infer_author(data: dict, client):
     data = AuthorInfoRequest(authors=data['authors'], disclosure=data['disclosure'])
     prompt = author_org_build_prompt(data)
-    result = author_org_infer(client, prompt)
-    return {'result': result}
+    return author_org_infer(client, prompt)
 
 async def process_message(redis_client, data, client, channel_name):
     result, result_channel, parse_result = None, None, None
@@ -36,9 +34,9 @@ async def process_message(redis_client, data, client, channel_name):
     elif channel_name == 'author_channel':
         result = infer_author(data, client)
         result_channel = 'author_result'
-    finish_reason = result['response']['body']['choices'][0]['finish_reason']
+    finish_reason = result.choices[0].finish_reason
     if finish_reason == 'stop':
-        parse_result = json.loads(result['response']['body']['choices'][0]['message']['content'])
+        parse_result = json.loads(result.choices[0].message.content)
     else:
         parse_result = {'result': result}
     await redis_client.publish(result_channel, json.dumps(parse_result))
@@ -56,12 +54,10 @@ async def handle_messages(channel_name, client, redis_client):
             data = json.loads(message["data"])
             await process_message(redis_client, data, client, channel_name)
 
-
 def run_listener(secret_key, channel_name, pool):
     openAI_client = OpenAI(api_key=secret_key)
     redis_client = redis.Redis(connection_pool=pool)
     asyncio.run(handle_messages(channel_name, openAI_client, redis_client), debug=True)
-
 
 def get_redis_pool():
     redis_host = os.getenv('REDIS_HOST', 'localhost')
@@ -74,15 +70,9 @@ def main():
     secret_path = Path(__file__).parent.parent / 'secret_key'
     with secret_path.open() as f:
         secret_key = f.read().strip()
-    channel_names = ['author_channel', 'study_channel']
     pool = get_redis_pool()
-    threads = []
-    for channel in channel_names:
-        thread = threading.Thread(target=run_listener, args=(secret_key, channel, pool))
-        threads.append(thread)
-        thread.start()
-    for thread in threads:
-        thread.join()
+    asyncio.create_task(run_listener(secret_key, 'author_channel', pool))
+    asyncio.create_task(run_listener(secret_key, 'study_channel', pool))
 
 if __name__ == "__main__":
     main()
