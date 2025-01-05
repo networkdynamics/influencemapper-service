@@ -28,16 +28,30 @@ def infer_author(data: dict, client):
 def process_message(redis_client, data, client, channel_name):
     result, result_channel, parse_result = None, None, None
     result_channel = 'result'
+    data_id = data['id']
+    payload = data['payload']
     if channel_name == 'study_channel':
-        result = infer_study(data, client)
+        result = infer_study(payload, client)
     elif channel_name == 'author_channel':
-        result = infer_author(data, client)
+        result = infer_author(payload, client)
     finish_reason = result.choices[0].finish_reason
     if finish_reason == 'stop':
-        parse_result = json.loads(result.choices[0].message.content)
+        result = {
+            'id': data_id,
+            'source': payload,
+            'payload': json.loads(result.choices[0].message.content),
+            'error': None,
+            'channel': channel_name
+        }
     else:
-        parse_result = {'result': result}
-    redis_client.publish(result_channel, json.dumps(parse_result))
+        result = {
+            'id': data_id,
+            'source': payload,
+            'payload': None,
+            'error': 'Inference did not finish. Try again later.',
+            'channel': channel_name
+        }
+    redis_client.publish(result_channel, json.dumps(result))
 
 def handle_messages(channel_name, client, redis_client):
     """
