@@ -13,14 +13,11 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-
   redis:
     image: redis:latest
     ports:
         - "6379:6379"
     restart: always
-
-
   core:
     image: influencemapper-service-core:latest
     build:
