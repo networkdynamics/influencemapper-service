@@ -62,7 +62,8 @@ class AuthorInfoRequest(BaseModel):
     authors: list[str]
     disclosure: str
     title: str
-
+    affiliation: list[str]
+    email: list[str]
 
 class StudyInfoRequest(BaseModel):
     disclosure: str
@@ -78,17 +79,20 @@ async def publish_infos(df: DataFrame, channel: str):
     tasks = []
     data_id = 0
     data_ids = []
-    for key, group in df.groupby("Article title"):
+
+    for key, group in df.groupby("Title"):
         if channel == 'author_channel':
             data = AuthorInfoRequest(
                 authors=group["Author Name"].tolist(),
                 disclosure=group["Disclosure Statement"].iloc[0],
-                title=group['Article title'].iloc[0]
+                title=group['Title'].iloc[0],
+                affiliation=group['Affiliation'].tolist(),
+                email=group['Email'].tolist()
             )
         else:
             data = StudyInfoRequest(
                 disclosure=group["Disclosure Statement"].iloc[0],
-                title=group['Article title'].iloc[0]
+                title=group['Title'].iloc[0]
             )
         data = {
             'id': data_id,
@@ -181,17 +185,19 @@ async def postprocess_author_results(results):
         for i in range(len(author_info)):
             author = author_info[i]['author_name']
             rels = author_info[i]['organization']
+            affiliation = author_info[i]['affiliation']
+            email = author_info[i]['email']
             for rel in rels:
                 orgs.append(rel['org_name'])
                 relationships = rel['relationship_type']
                 for relationship in relationships:
                     rel_types.append(relationship)
-            authors.append(author)
+            authors.append((author, affiliation, email))
         sources.append((id, source['title'], source['disclosure']))
     df_source = pd.DataFrame(sources, columns=['id', 'title', 'disclosure'])
     df_ent = pd.DataFrame([(f'ent-{i}', org, infer_is_funded(org)) for i, org in enumerate(set(orgs))], columns=['ent_id', 'org_name', 'ent-ind support'])
     # TODO: deal with authors with similar name
-    df_author = pd.DataFrame([(f'author-{i}', author) for i, author in enumerate(set(authors))], columns=['author_id', 'author_name'])
+    df_author = pd.DataFrame([(f'author-{i}', author[0], author[1], author[2]) for i, author in enumerate(set(authors))], columns=['author_id', 'author_name', 'affiliation', 'email'])
     df_rel_type = pd.DataFrame([(f'rel-{i}', rel) for i, rel in enumerate(set(rel_types))],
                                columns=['rel_id', 'relationship_type'])
     dict_ent = dict(zip(df_ent['org_name'], df_ent['ent_id']))
@@ -305,7 +311,16 @@ async def upload_csv(request: Request, file: UploadFile = File(...)):
         return {"error": "File is not a CSV"}
     else:
         content = await file.read()
-        df = pd.read_csv(io.StringIO(content.decode("utf-8")))
+        dtype_dict = {
+            "PDF File": "string",
+            "Title": "string",
+            "Author Name": "string",
+            "Affiliation": "string",
+            "Email": "string",
+            "Disclosure Statement": "string"
+        }
+        df = pd.read_csv(io.StringIO(content.decode("utf-8")), delimiter='\t', dtype=dtype_dict,
+                         keep_default_na=False)
         author_tasks, author_ids = await publish_infos(df, 'author_channel')
         study_tasks, study_ids = await publish_infos(df, 'study_channel')
         total_message = len(author_tasks) + len(study_tasks)

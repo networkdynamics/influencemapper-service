@@ -382,3 +382,6 @@ coverage
 *.sw?
 
 *.tsbuildinfo
+
+*results*
+dist.tar.gz
